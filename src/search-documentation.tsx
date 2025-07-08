@@ -1,6 +1,6 @@
 import { ActionPanel, Action, List, Color, Detail, showToast, Toast, Icon } from "@raycast/api";
 import { usePromise, useFetch, useCachedState } from "@raycast/utils";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Fuse from "fuse.js";
 import {
   getPackageContentsUrl,
@@ -11,18 +11,42 @@ import {
   FHIRPackageContent,
   FHIRResourceDetail,
 } from "./utils/fhir-registry-api";
-import { getSavedPackages, initializeDefaultPackages } from "./utils/storage";
+import {
+  getPinnedPackages,
+  getCorePackages,
+  initializePinnedPackages,
+  getPinnedResources,
+  pinResource,
+  unpinResource,
+  PinnedResource,
+} from "./utils/storage";
 
 export default function SearchDocumentation() {
   const [selectedPackageId, setSelectedPackageId] = useCachedState<string>("selected-package-id", "");
+  const [pinnedResources, setPinnedResources] = useState<PinnedResource[]>([]);
+  const [pinnedResourceIds, setPinnedResourceIds] = useState<Set<string>>(new Set());
 
-  // Initialize default packages and get saved packages
+  // Get core and pinned packages
   const { data: packages, isLoading: isLoadingPackages } = usePromise(async () => {
-    await initializeDefaultPackages();
-    return await getSavedPackages();
+    await initializePinnedPackages();
+    return await getPinnedPackages();
   }, []);
 
-  const defaultPackageId = packages?.find((pkg) => pkg.id.includes("hl7.fhir.r5.core"))?.id || packages?.[0]?.id;
+  const corePackages = getCorePackages();
+
+  // Load pinned resources
+  const loadPinnedResources = async () => {
+    const pinned = await getPinnedResources();
+    setPinnedResources(pinned);
+    setPinnedResourceIds(new Set(pinned.map((r) => r.id)));
+  };
+
+  // Load pinned resources on component mount and when package changes
+  useEffect(() => {
+    loadPinnedResources();
+  }, [selectedPackageId]); // Add selectedPackageId as dependency
+
+  const defaultPackageId = corePackages.find((pkg) => pkg.id.includes("hl7.fhir.r5.core"))?.id || corePackages[0]?.id;
 
   // Get package contents when a package is selected
   const shouldFetchContents = Boolean(selectedPackageId);
@@ -43,14 +67,58 @@ export default function SearchDocumentation() {
     setSelectedPackageId(packageId);
   };
 
-  const packageDropdownOptions =
-    packages?.map((pkg) => ({
-      id: pkg.id,
-      title: pkg.title,
-      value: pkg.id,
-    })) || [];
+  const handlePinResource = async (resource: FHIRPackageContent | PinnedResource) => {
+    try {
+      const resourceId = `${resource.id}-${selectedPackageId}`;
+      const selectedPkg =
+        packages?.find((p) => p.id === selectedPackageId) || corePackages.find((p) => p.id === selectedPackageId);
 
-  const selectedPackage = packages?.find((pkg) => pkg.id === selectedPackageId);
+      if (!selectedPkg) return;
+
+      await pinResource({
+        id: resourceId,
+        packageId: selectedPackageId,
+        resourceId: "resourceId" in resource ? resource.resourceId : resource.id,
+        title: resource.title,
+        url: resource.url,
+        resourceType: resource.resourceType,
+        packageName: "packageName" in resource ? resource.packageName : selectedPkg.name,
+      });
+
+      await loadPinnedResources();
+
+      await showToast({
+        style: Toast.Style.Success,
+        title: "Resource pinned",
+        message: `${resource.title} has been pinned`,
+      });
+    } catch (error) {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Failed to pin resource",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  };
+
+  const handleUnpinResource = async (resourceId: string) => {
+    try {
+      await unpinResource(resourceId);
+      await loadPinnedResources();
+
+      await showToast({
+        style: Toast.Style.Success,
+        title: "Resource unpinned",
+        message: "Resource has been unpinned",
+      });
+    } catch (error) {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Failed to unpin resource",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  };
 
   // Resource type importance weighting
   const getResourceTypeWeight = (resourceType: string): number => {
@@ -104,8 +172,27 @@ export default function SearchDocumentation() {
     });
   }
 
+  const filteredResourcesCount = filteredResources.length;
+
   // Limit to 50 items max to prevent memory issues
   filteredResources = filteredResources.slice(0, 50);
+
+  // Filter pinned resources for current package and search
+  const filteredPinnedResources = pinnedResources
+    .filter((resource) => resource.packageId === selectedPackageId) // Only show resources for current package
+    .filter((resource) => {
+      if (!searchText.trim()) return true;
+      const searchLower = searchText.toLowerCase();
+      return (
+        resource.title.toLowerCase().includes(searchLower) || resource.resourceType.toLowerCase().includes(searchLower)
+      );
+    });
+
+  // Filter out pinned resources from regular results to avoid duplicates
+  const nonPinnedResources = filteredResources.filter((r) => {
+    const resourceId = `${r.id}-${selectedPackageId}`;
+    return !pinnedResourceIds.has(resourceId);
+  });
 
   return (
     <List
@@ -121,31 +208,86 @@ export default function SearchDocumentation() {
           onChange={handlePackageChange}
           storeValue
           defaultValue={defaultPackageId}
+          placeholder="Select Package"
         >
-          {packageDropdownOptions.map((option) => (
-            <List.Dropdown.Item key={option.id} title={option.title} value={option.value} />
-          ))}
+          <List.Dropdown.Section title="Core">
+            {corePackages.map((pkg) => (
+              <List.Dropdown.Item key={pkg.id} title={pkg.title || pkg.id} value={pkg.id} />
+            ))}
+          </List.Dropdown.Section>
+          {packages && packages.length > 0 && (
+            <List.Dropdown.Section title="Pinned">
+              {packages.map((pkg) => (
+                <List.Dropdown.Item key={pkg.id} title={pkg.title || pkg.id} value={pkg.id} />
+              ))}
+            </List.Dropdown.Section>
+          )}
         </List.Dropdown>
       }
     >
-      {filteredResources.length === 0 ? (
-        <List.EmptyView
-          icon={Icon.ExclamationMark}
-          title="No Resources Found"
-          description={selectedPackage ? `No resources found in ${selectedPackage.title}` : "No resources available"}
-        />
+      {filteredPinnedResources.length === 0 && nonPinnedResources.length === 0 ? (
+        <List.EmptyView icon={Icon.MagnifyingGlass} title="No Results" />
       ) : (
-        filteredResources.map((resource) => <FHIRResourceListItem key={resource.id} resource={resource} />)
+        <>
+          {filteredPinnedResources.length > 0 && (
+            <List.Section title="Pinned" subtitle={filteredPinnedResources.length.toString()}>
+              {filteredPinnedResources.map((resource) => {
+                const resourceId = `${resource.id}-${selectedPackageId}`;
+                return (
+                  <FHIRResourceListItem
+                    key={resource.id || resourceId}
+                    resource={resource}
+                    isPinned={true}
+                    onPin={() => handlePinResource(resource)}
+                    onUnpin={() => handleUnpinResource(resourceId)}
+                  />
+                );
+              })}
+            </List.Section>
+          )}
+          {nonPinnedResources.length > 0 && (
+            <List.Section
+              title="Results"
+              subtitle={(filteredResourcesCount - filteredPinnedResources.length).toString()}
+            >
+              {nonPinnedResources.map((resource) => {
+                const resourceId = `${resource.id}-${selectedPackageId}`;
+                return (
+                  <FHIRResourceListItem
+                    key={resource.id || resourceId}
+                    resource={resource}
+                    isPinned={false}
+                    onPin={() => handlePinResource(resource)}
+                    onUnpin={() => handleUnpinResource(resourceId)}
+                  />
+                );
+              })}
+            </List.Section>
+          )}
+        </>
       )}
     </List>
   );
 }
 
-function FHIRResourceListItem({ resource }: { resource: FHIRPackageContent }) {
+function FHIRResourceListItem({
+  resource,
+  isPinned,
+  onPin,
+  onUnpin,
+}: {
+  resource: FHIRPackageContent | PinnedResource;
+  isPinned?: boolean;
+  onPin?: () => void;
+  onUnpin?: () => void;
+}) {
   const title = resource.title;
-  const keywords = [resource.title, resource.resourceType, resource.category, resource.fileName].filter(
-    Boolean,
-  ) as string[];
+  const keywords = [
+    resource.title,
+    resource.resourceType,
+    "category" in resource ? resource.category : undefined,
+    "fileName" in resource ? resource.fileName : undefined,
+  ].filter(Boolean) as string[];
 
   const getResourceTypeColor = (type: string) => {
     switch (type.toLowerCase()) {
@@ -174,16 +316,27 @@ function FHIRResourceListItem({ resource }: { resource: FHIRPackageContent }) {
       accessories={[
         {
           tag: {
-            value: resource.resourceType || resource.category || "Unknown",
-            color: getResourceTypeColor(resource.resourceType || resource.category || "Unknown"),
+            value: resource.resourceType || ("category" in resource ? resource.category : undefined) || "Unknown",
+            color: getResourceTypeColor(
+              resource.resourceType || ("category" in resource ? resource.category : undefined) || "Unknown",
+            ),
           },
         },
       ]}
       actions={
         <ActionPanel>
           <ActionPanel.Section>
-            <Action.Push title="Show Details" icon={Icon.Eye} target={<ResourceDetail resource={resource} />} />
+            <Action.Push
+              title="Show Details"
+              icon={Icon.Eye}
+              target={<ResourceDetail resource={resource as FHIRPackageContent} />}
+            />
             <Action.OpenInBrowser title="Open in Browser" url={resource.url} />
+            {isPinned && onUnpin ? (
+              <Action title="Unpin Resource" icon={Icon.PinDisabled} onAction={onUnpin} />
+            ) : onPin ? (
+              <Action title="Pin Resource" icon={Icon.Pin} onAction={onPin} />
+            ) : null}
           </ActionPanel.Section>
           <ActionPanel.Section>
             <Action.CopyToClipboard
@@ -204,7 +357,6 @@ function FHIRResourceListItem({ resource }: { resource: FHIRPackageContent }) {
 }
 
 function ResourceDetail({ resource }: { resource: FHIRPackageContent }) {
-  console.log("resource", resource);
   const {
     data: detailData,
     isLoading,

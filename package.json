@@ -22,12 +22,6 @@
       "title": "Search Packages",
       "description": "Search and browse FHIR packages",
       "mode": "view"
-    },
-    {
-      "name": "manage-package-documentation",
-      "title": "Manage Package Documentation",
-      "description": "Manage your FHIR documentation packages",
-      "mode": "view"
     }
   ],
   "dependencies": {
