@@ -1,3 +1,5 @@
+import { XMLParser, XMLValidator } from "fast-xml-parser";
+
 export interface FHIRPackage {
   id: string;
   name: string;
@@ -116,6 +118,7 @@ export function getSearchPackagesOptions(query: string): RequestInit {
     headers: {
       accept: "application/json",
       "content-type": "application/x-ndjson",
+      referer: "https://registry.fhir.org/results",
     },
     body: requestBody,
   };
@@ -159,7 +162,7 @@ export function getPackageContentsOptions(): RequestInit {
 export function parsePackageContentsResponse(data: unknown): FHIRPackageContent[] {
   const response = data as FHIRPackageDetails;
   return (
-  response.entity._source.contents
+    response.entity._source.contents
       .filter((item) => item.canonical && item.canonical.startsWith("http"))
       .map((item) => ({
         id: item.id,
@@ -175,12 +178,132 @@ export function getResourceDetailUrl(canonicalUrl: string): string {
   return canonicalUrl;
 }
 
-export function getResourceDetailOptions(): RequestInit {
+export function getResourceDetailOptions(): RequestInit & { parseResponse?: (response: Response) => Promise<unknown> } {
   return {
     redirect: "follow" as RequestRedirect,
+    parseResponse: async (response: Response) => {
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const text = await response.text();
+
+      if (!text || text.trim().length === 0) {
+        throw new Error("Empty response received");
+      }
+
+      const contentType = response.headers.get("content-type") || "";
+      const isXml = contentType.includes("application/xml") || contentType.includes("text/xml");
+      const isJson = contentType.includes("application/json") || contentType.includes("text/json");
+      try {
+        if (isXml) {
+          return parseXmlToJson(text);
+        } else if (isJson) {
+          return JSON.parse(text);
+        } else {
+          // Fallback to content detection if content-type is unclear
+          return parseResourceDetailResponse(text);
+        }
+      } catch (error) {
+        console.error("Failed to parse FHIR resource response:", error);
+        throw new Error(`Failed to parse FHIR resource: ${error instanceof Error ? error.message : "Unknown error"}`);
+      }
+    },
   };
 }
 
 export function parseResourceDetailResponse(data: unknown): FHIRResourceDetail {
+  // If data is already a parsed object, return it
+  if (typeof data === "object" && data !== null) {
+    return data as FHIRResourceDetail;
+  }
+
+  // If data is a string, try to detect format and parse
+  if (typeof data === "string") {
+    const content = data.trim();
+
+    // Check if it's XML by looking for XML declaration or root element
+    if (content.startsWith("<?xml") || content.startsWith("<")) {
+      try {
+        return parseXmlToJson(content);
+      } catch (error) {
+        console.error("Failed to parse XML response:", error);
+        throw new Error("Invalid XML response format");
+      }
+    }
+
+    // Try to parse as JSON string
+    try {
+      return JSON.parse(content);
+    } catch (error) {
+      console.error("Failed to parse response as JSON:", error);
+      throw new Error("Invalid response format");
+    }
+  }
+
   return data as FHIRResourceDetail;
+}
+
+function parseXmlToJson(xmlString: string): FHIRResourceDetail {
+  // Validate XML first
+  const validationResult = XMLValidator.validate(xmlString);
+  if (validationResult !== true) {
+    throw new Error(`Invalid XML format: ${validationResult.err.msg}`);
+  }
+  // Configure parser options for FHIR XML
+  const options = {
+    ignoreAttributes: false,
+    attributeNamePrefix: "@_",
+    textNodeName: "_text",
+    parseAttributeValue: true,
+    parseTrueNumberOnly: false,
+    trimValues: true,
+    ignoreDeclaration: true,
+  };
+
+  const parser = new XMLParser(options);
+  const result = parser.parse(xmlString) as Record<string, unknown>;
+  // Extract the root element (should be the FHIR resource)
+  const rootKeys = Object.keys(result);
+  if (rootKeys.length !== 1) {
+    throw new Error("Invalid FHIR resource: expected single root element");
+  }
+
+  const rootKey = rootKeys[0];
+  const resourceData = result[rootKey] as Record<string, unknown>;
+
+  // Ensure we have the basic FHIR resource structure
+  if (!resourceData.resourceType) {
+    resourceData.resourceType = rootKey;
+  }
+  return flattenXmlValues(resourceData) as FHIRResourceDetail;
+}
+
+function flattenXmlValues(obj: unknown): unknown {
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map((item) => flattenXmlValues(item));
+  }
+
+  if (typeof obj === "object") {
+    const record = obj as Record<string, unknown>;
+
+    // If object has only one property and it's @_value, return the value
+    const keys = Object.keys(record);
+    if (keys.length === 1 && keys[0] === "@_value") {
+      return record["@_value"];
+    }
+
+    // Otherwise, recursively process all properties
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(record)) {
+      result[key] = flattenXmlValues(value);
+    }
+    return result;
+  }
+
+  return obj;
 }
