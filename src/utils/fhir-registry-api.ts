@@ -87,16 +87,98 @@ export function getSearchPackagesOptions(query: string): RequestInit {
                       {
                         multi_match: {
                           query: query,
-                          fields: ["canonical^5", "title^4", "description^4", "name^4"],
+                          fields: [
+                            "canonical^5",
+                            "title^4",
+                            "description^4",
+                            "name^4",
+                            "version^1",
+                            "keyWords^1",
+                            "maintainers.name^1",
+                            "author^1",
+                            "contents.title^1",
+                            "contents.canonical^1",
+                            "contents.fileName^1",
+                          ],
                           type: "best_fields",
                           operator: "and",
                           fuzziness: 1,
+                        },
+                      },
+                      {
+                        multi_match: {
+                          query: query,
+                          fields: [
+                            "canonical^5",
+                            "title^4",
+                            "description^4",
+                            "name^4",
+                            "version^1",
+                            "keyWords^1",
+                            "maintainers.name^1",
+                            "author^1",
+                            "contents.title^1",
+                            "contents.canonical^1",
+                            "contents.fileName^1",
+                          ],
+                          type: "phrase",
+                          operator: "and",
+                        },
+                      },
+                      {
+                        multi_match: {
+                          query: "fhir hl7 argonaut carin davinci",
+                          fields: ["name"],
+                          type: "phrase",
+                          operator: "or",
+                        },
+                      },
+                      {
+                        boosting: {
+                          positive: {
+                            multi_match: {
+                              query: query,
+                              fields: ["canonical", "title", "description", "name"],
+                              type: "best_fields",
+                              operator: "and",
+                            },
+                          },
+                          negative: {
+                            multi_match: {
+                              query: "test training testing dummy",
+                              fields: ["title^0.1", "name^0.1", "description^0.1"],
+                              type: "best_fields",
+                              operator: "or",
+                            },
+                          },
+                          negative_boost: 1,
+                        },
+                      },
+                      {
+                        nested: {
+                          path: "contents",
+                          query: {
+                            bool: {
+                              must: [
+                                {
+                                  multi_match: {
+                                    query: query,
+                                    fields: ["contents.title", "contents.canonical"],
+                                    type: "most_fields",
+                                    operator: "or",
+                                  },
+                                },
+                              ],
+                            },
+                          },
+                          inner_hits: { size: 5, explain: true, sort: { _score: "desc" } },
                         },
                       },
                     ],
                     minimum_should_match: "1",
                   },
                 },
+                { bool: { boost: 1, minimum_should_match: 1, should: [{ term: { latest: true } }] } },
               ],
             },
           },
@@ -104,11 +186,7 @@ export function getSearchPackagesOptions(query: string): RequestInit {
       },
     },
     size: 10,
-    _source: {
-      includes: ["*"],
-      excludes: [],
-    },
-    from: 0,
+    _source: { includes: ["*"], excludes: [] },
   });
 
   const requestBody = `${header}\n${queryBody}`;
