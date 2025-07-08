@@ -131,8 +131,6 @@ export default function ManagePackageDocumentation() {
 
                     <List.Item.Detail.Metadata.Separator />
 
-                    <List.Item.Detail.Metadata.Link title="Canonical URL" target={pkg.canonical} text={pkg.canonical} />
-
                     <List.Item.Detail.Metadata.Link title="Package URL" target={pkg.url} text={pkg.url} />
 
                     {pkg.publisher && <List.Item.Detail.Metadata.Label title="Publisher" text={pkg.publisher} />}
@@ -158,8 +156,7 @@ export default function ManagePackageDocumentation() {
                     target={<SearchPackages />}
                     shortcut={{ modifiers: ["cmd"], key: "n" }}
                   />
-                  <Action.OpenInBrowser title="Open Package URL" url={pkg.url} />
-                  <Action.OpenInBrowser title="Open Canonical URL" url={pkg.canonical} />
+                  <Action.OpenInBrowser title="Open in Browser" url={pkg.url} />
                 </ActionPanel.Section>
                 <ActionPanel.Section>
                   <Action

@@ -6,7 +6,6 @@ import {
   getPackageContentsUrl,
   getPackageContentsOptions,
   parsePackageContentsResponse,
-  getResourceDetailUrl,
   getResourceDetailOptions,
   parseResourceDetailResponse,
   FHIRPackageContent,
@@ -144,13 +143,9 @@ export default function SearchDocumentation() {
 
 function FHIRResourceListItem({ resource }: { resource: FHIRPackageContent }) {
   const title = resource.title;
-  const keywords = [
-    resource.title,
-    resource.canonical,
-    resource.resourceType,
-    resource.category,
-    resource.fileName,
-  ].filter(Boolean) as string[];
+  const keywords = [resource.title, resource.resourceType, resource.category, resource.fileName].filter(
+    Boolean,
+  ) as string[];
 
   const getResourceTypeColor = (type: string) => {
     switch (type.toLowerCase()) {
@@ -174,7 +169,7 @@ function FHIRResourceListItem({ resource }: { resource: FHIRPackageContent }) {
   return (
     <List.Item
       title={title}
-      subtitle={resource.canonical}
+      subtitle={resource.url}
       keywords={keywords}
       accessories={[
         {
@@ -188,12 +183,12 @@ function FHIRResourceListItem({ resource }: { resource: FHIRPackageContent }) {
         <ActionPanel>
           <ActionPanel.Section>
             <Action.Push title="Show Details" icon={Icon.Eye} target={<ResourceDetail resource={resource} />} />
-            {resource.canonical && <Action.OpenInBrowser title="Open in Browser" url={resource.canonical} />}
+            <Action.OpenInBrowser title="Open in Browser" url={resource.url} />
           </ActionPanel.Section>
           <ActionPanel.Section>
             <Action.CopyToClipboard
-              title="Copy Canonical URL"
-              content={resource.canonical}
+              title="Copy URL"
+              content={resource.url}
               shortcut={{ modifiers: ["cmd"], key: "." }}
             />
             <Action.CopyToClipboard
@@ -209,11 +204,12 @@ function FHIRResourceListItem({ resource }: { resource: FHIRPackageContent }) {
 }
 
 function ResourceDetail({ resource }: { resource: FHIRPackageContent }) {
+  console.log("resource", resource);
   const {
     data: detailData,
     isLoading,
     error,
-  } = useFetch(getResourceDetailUrl(resource.canonical), {
+  } = useFetch(resource.url, {
     ...getResourceDetailOptions(),
     onError: async (error) => {
       await showToast({
@@ -236,7 +232,7 @@ function ResourceDetail({ resource }: { resource: FHIRPackageContent }) {
         navigationTitle={resource.title}
         actions={
           <ActionPanel>
-            {resource.canonical && <Action.OpenInBrowser title="Open in Browser" url={resource.canonical} />}
+            <Action.OpenInBrowser title="Open in Browser" url={resource.url} />
           </ActionPanel>
         }
       />
@@ -330,19 +326,12 @@ function ResourceDetailView({ resource, detail }: { resource: FHIRPackageContent
       actions={
         <ActionPanel>
           <ActionPanel.Section>
-            {resource.canonical && <Action.OpenInBrowser title="Open in Browser" url={resource.canonical} />}
-            {detail?.url && detail.url !== resource.canonical && (
-              <Action.OpenInBrowser
-                title="Open Resource URL"
-                url={detail.url}
-                shortcut={{ modifiers: ["cmd", "shift"], key: "o" }}
-              />
-            )}
+            <Action.OpenInBrowser title="Open in Browser" url={detail?.url || resource.url} />
           </ActionPanel.Section>
           <ActionPanel.Section>
             <Action.CopyToClipboard
-              title="Copy Canonical URL"
-              content={resource.canonical}
+              title="Copy URL"
+              content={detail?.url || resource.url}
               shortcut={{ modifiers: ["cmd"], key: "." }}
             />
             {detail?.id && (

@@ -19,6 +19,7 @@ export interface FHIRPackage {
 export interface FHIRPackageContent {
   fileName?: string;
   canonical: string;
+  url: string;
   id: number;
   title: string;
   category?: string;
@@ -28,6 +29,8 @@ export interface FHIRPackageContent {
 export interface FHIRPackageDetails {
   entity: {
     _source: {
+      canonical: string;
+      url: string;
       contents: FHIRPackageContent[];
     };
   };
@@ -239,21 +242,21 @@ export function getPackageContentsOptions(): RequestInit {
 
 export function parsePackageContentsResponse(data: unknown): FHIRPackageContent[] {
   const response = data as FHIRPackageDetails;
+
+  const packageCanonical = response.entity._source.canonical;
+  const packageUrl = response.entity._source.url;
+
   return (
     response.entity._source.contents
       .filter((item) => item.canonical && item.canonical.startsWith("http"))
       .map((item) => ({
         id: item.id,
         canonical: item.canonical,
+        url: item.canonical.replace(packageCanonical, packageUrl),
         title: item.title,
         resourceType: item.resourceType,
       })) || []
   );
-}
-
-export function getResourceDetailUrl(canonicalUrl: string): string {
-  // For now, return the canonical URL - we'll handle redirects in the component
-  return canonicalUrl;
 }
 
 export function getResourceDetailOptions(): RequestInit & { parseResponse?: (response: Response) => Promise<unknown> } {

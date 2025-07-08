@@ -130,9 +130,7 @@ export default function AddPackageDocumentation() {
 
                     <List.Item.Detail.Metadata.Separator />
 
-                    <List.Item.Detail.Metadata.Link title="Canonical URL" target={pkg.canonical} text={pkg.canonical} />
-
-                    <List.Item.Detail.Metadata.Link title="Package URL" target={pkg.url} text={pkg.url} />
+                    <List.Item.Detail.Metadata.Link title="URL" target={pkg.url} text={pkg.url} />
 
                     {pkg.publisher && <List.Item.Detail.Metadata.Label title="Publisher" text={pkg.publisher} />}
 
@@ -148,14 +146,13 @@ export default function AddPackageDocumentation() {
             actions={
               <ActionPanel>
                 <ActionPanel.Section>
-                  <Action.OpenInBrowser title="Open Package URL" url={pkg.url} />
+                  <Action.OpenInBrowser title="Open in Browser" url={pkg.url} />
                   <Action title="Add Package" icon={Icon.Plus} onAction={() => handleAddPackage(pkg)} />
-                  <Action.OpenInBrowser title="Open Canonical URL" url={pkg.canonical} />
                 </ActionPanel.Section>
                 <ActionPanel.Section>
-                  <Action.CopyToClipboard title="Copy Package ID" content={pkg.id} />
-                  <Action.CopyToClipboard title="Copy Package Name" content={pkg.name} />
-                  <Action.CopyToClipboard title="Copy Canonical URL" content={pkg.canonical} />
+                  <Action.CopyToClipboard title="Copy ID" content={pkg.id} />
+                  <Action.CopyToClipboard title="Copy Name" content={pkg.name} />
+                  <Action.CopyToClipboard title="Copy URL" content={pkg.url} />
                 </ActionPanel.Section>
               </ActionPanel>
             }
