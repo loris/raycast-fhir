@@ -2,6 +2,7 @@ import { ActionPanel, Action, List, showToast, Toast, Color, confirmAlert, Alert
 import { usePromise } from "@raycast/utils";
 import { useState } from "react";
 import { getSavedPackages, removePackage, SavedPackage, initializeDefaultPackages } from "./utils/storage";
+import SearchPackages from "./search-packages";
 
 export default function ManagePackageDocumentation() {
   const [packages, setPackages] = useState<SavedPackage[]>([]);
@@ -81,7 +82,7 @@ export default function ManagePackageDocumentation() {
           description="Add FHIR packages to get started"
           actions={
             <ActionPanel>
-              <Action.Push title="Add Package" icon="+" target={<AddPackageDocumentation />} />
+              <Action.Push title="Add Package" icon="+" target={<SearchPackages />} />
             </ActionPanel>
           }
         />
@@ -154,7 +155,7 @@ export default function ManagePackageDocumentation() {
                   <Action.Push
                     title="Add Package"
                     icon="+"
-                    target={<AddPackageDocumentation />}
+                    target={<SearchPackages />}
                     shortcut={{ modifiers: ["cmd"], key: "n" }}
                   />
                   <Action.OpenInBrowser title="Open Package URL" url={pkg.url} />
@@ -181,6 +182,3 @@ export default function ManagePackageDocumentation() {
     </List>
   );
 }
-
-// Import the AddPackageDocumentation component (we'll need to import it properly)
-import AddPackageDocumentation from "./add-package-documentation";
