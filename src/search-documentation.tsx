@@ -16,7 +16,6 @@ import { getSavedPackages, initializeDefaultPackages } from "./utils/storage";
 
 export default function SearchDocumentation() {
   const [selectedPackageId, setSelectedPackageId] = useCachedState<string>("selected-package-id", "");
-  const [selectedResource, setSelectedResource] = useState<FHIRPackageContent | null>(null);
 
   // Initialize default packages and get saved packages
   const { data: packages, isLoading: isLoadingPackages } = usePromise(async () => {
@@ -43,11 +42,6 @@ export default function SearchDocumentation() {
   const resources = packageContentsData ? parsePackageContentsResponse(packageContentsData) : [];
   const handlePackageChange = (packageId: string) => {
     setSelectedPackageId(packageId);
-    setSelectedResource(null);
-  };
-
-  const handleResourceSelect = (resource: FHIRPackageContent) => {
-    setSelectedResource(resource);
   };
 
   const packageDropdownOptions =
@@ -63,41 +57,34 @@ export default function SearchDocumentation() {
   const getResourceTypeWeight = (resourceType: string): number => {
     switch (resourceType?.toLowerCase()) {
       case "structuredefinition":
-        return 3.0; // Most important - defines resource structures
+        return 3.0;
       case "valueset":
       case "codesystem":
-        return 2.5; // Very important - coding and terminology
+        return 2.5;
       case "extension":
-        return 2.0; // Important - widely used extensions
+        return 2.0;
       case "searchparameter":
-        return 1.5; // Useful for implementers
+        return 1.5;
       case "operationdefinition":
-        return 1.2; // Useful for advanced operations
+        return 1.2;
       default:
-        return 1.0; // Default weight
+        return 1.0;
     }
   };
 
   // Enhanced search filtering with fuzzy matching and weighting
   let filteredResources = resources || [];
-
   if (searchText.trim()) {
     // Configure Fuse.js for fuzzy search
     const fuse = new Fuse(filteredResources, {
-      keys: [
-        {
-          name: "title",
-          weight: 1.0,
-        },
-      ],
-      threshold: 0.4, // Lower = more strict matching
+      keys: [{ name: "title", weight: 1.0 }],
+      threshold: 0.4,
       distance: 100,
       includeScore: true,
     });
 
     const fuseResults = fuse.search(searchText);
 
-    // Apply resource type weighting and sort
     const scoredResults = fuseResults.map((result) => ({
       item: result.item,
       combinedScore: (result.score || 0) / getResourceTypeWeight(result.item.resourceType),
@@ -120,10 +107,6 @@ export default function SearchDocumentation() {
 
   // Limit to 50 items max to prevent memory issues
   filteredResources = filteredResources.slice(0, 50);
-
-  if (selectedResource) {
-    return <ResourceDetail resource={selectedResource} onBack={() => setSelectedResource(null)} />;
-  }
 
   return (
     <List
@@ -153,15 +136,13 @@ export default function SearchDocumentation() {
           description={selectedPackage ? `No resources found in ${selectedPackage.title}` : "No resources available"}
         />
       ) : (
-        filteredResources.map((resource) => (
-          <FHIRResourceListItem key={resource.id} resource={resource} onSelect={() => handleResourceSelect(resource)} />
-        ))
+        filteredResources.map((resource) => <FHIRResourceListItem key={resource.id} resource={resource} />)
       )}
     </List>
   );
 }
 
-function FHIRResourceListItem({ resource, onSelect }: { resource: FHIRPackageContent; onSelect: () => void }) {
+function FHIRResourceListItem({ resource }: { resource: FHIRPackageContent }) {
   const title = resource.title;
   const keywords = [
     resource.title,
@@ -206,7 +187,7 @@ function FHIRResourceListItem({ resource, onSelect }: { resource: FHIRPackageCon
       actions={
         <ActionPanel>
           <ActionPanel.Section>
-            <Action title="View Details" icon={Icon.Eye} onAction={onSelect} />
+            <Action.Push title="Show Details" icon={Icon.Eye} target={<ResourceDetail resource={resource} />} />
             {resource.canonical && <Action.OpenInBrowser title="Open in Browser" url={resource.canonical} />}
           </ActionPanel.Section>
           <ActionPanel.Section>
@@ -227,7 +208,7 @@ function FHIRResourceListItem({ resource, onSelect }: { resource: FHIRPackageCon
   );
 }
 
-function ResourceDetail({ resource, onBack }: { resource: FHIRPackageContent; onBack: () => void }) {
+function ResourceDetail({ resource }: { resource: FHIRPackageContent }) {
   const {
     data: detailData,
     isLoading,
@@ -244,19 +225,8 @@ function ResourceDetail({ resource, onBack }: { resource: FHIRPackageContent; on
   });
 
   const detail = detailData ? parseResourceDetailResponse(detailData) : undefined;
-
   if (isLoading) {
-    return (
-      <Detail
-        isLoading={true}
-        navigationTitle={resource.title}
-        actions={
-          <ActionPanel>
-            <Action title="Back" onAction={onBack} />
-          </ActionPanel>
-        }
-      />
-    );
+    return <Detail isLoading={true} navigationTitle={resource.title} />;
   }
 
   if (error) {
@@ -266,7 +236,6 @@ function ResourceDetail({ resource, onBack }: { resource: FHIRPackageContent; on
         navigationTitle={resource.title}
         actions={
           <ActionPanel>
-            <Action title="Back" onAction={onBack} />
             {resource.canonical && <Action.OpenInBrowser title="Open in Browser" url={resource.canonical} />}
           </ActionPanel>
         }
@@ -274,18 +243,10 @@ function ResourceDetail({ resource, onBack }: { resource: FHIRPackageContent; on
     );
   }
 
-  return <ResourceDetailView resource={resource} detail={detail} onBack={onBack} />;
+  return <ResourceDetailView resource={resource} detail={detail} />;
 }
 
-function ResourceDetailView({
-  resource,
-  detail,
-  onBack,
-}: {
-  resource: FHIRPackageContent;
-  detail?: FHIRResourceDetail;
-  onBack: () => void;
-}) {
+function ResourceDetailView({ resource, detail }: { resource: FHIRPackageContent; detail?: FHIRResourceDetail }) {
   const getStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
       case "active":
@@ -302,9 +263,19 @@ function ResourceDetailView({
   };
 
   const title = detail?.title || detail?.name || resource.title;
-  const description = detail?.description || "No description available";
+  let markdownContent = `## ${title}`;
 
-  const markdownContent = `# ${title}\n\n${description}`;
+  if (detail?.description) {
+    markdownContent += `\n\n### Description\n\n${detail?.description}`;
+  }
+
+  if (detail?.purpose) {
+    markdownContent += `\n\n### Purpose\n\n${detail?.purpose}`;
+  }
+
+  if (detail?.url) {
+    markdownContent += `\n\n### URL\n\n${detail?.url}`;
+  }
 
   return (
     <Detail
@@ -316,10 +287,6 @@ function ResourceDetailView({
             <Detail.Metadata.TagList.Item text={detail?.resourceType || resource.resourceType || "Unknown"} />
           </Detail.Metadata.TagList>
 
-          <Detail.Metadata.TagList title="ID">
-            <Detail.Metadata.TagList.Item text={detail?.id || "Unknown"} />
-          </Detail.Metadata.TagList>
-
           {detail?.status && (
             <Detail.Metadata.TagList title="Status">
               <Detail.Metadata.TagList.Item text={detail.status} color={getStatusColor(detail.status)} />
@@ -328,12 +295,6 @@ function ResourceDetailView({
           )}
 
           <Detail.Metadata.Separator />
-
-          {detail?.url && <Detail.Metadata.Link title="URL" target={detail.url} text={detail.url} />}
-
-          {resource.canonical && (
-            <Detail.Metadata.Link title="Canonical URL" target={resource.canonical} text={resource.canonical} />
-          )}
 
           {detail?.version && <Detail.Metadata.Label title="Version" text={detail.version} />}
 
@@ -358,21 +319,18 @@ function ResourceDetailView({
           )}
 
           {detail?.mapping && detail.mapping.length > 0 && (
-            <Detail.Metadata.Label title="Mappings" text={detail.mapping.map((m) => m.name || m.identity).join(", ")} />
+            <Detail.Metadata.TagList title="Mappings">
+              {detail.mapping.map((m) => (
+                <Detail.Metadata.TagList.Item key={m.name || m.identity} text={m.name || m.identity} />
+              ))}
+            </Detail.Metadata.TagList>
           )}
         </Detail.Metadata>
       }
       actions={
         <ActionPanel>
           <ActionPanel.Section>
-            <Action title="Back" onAction={onBack} />
-            {resource.canonical && (
-              <Action.OpenInBrowser
-                title="Open in Browser"
-                url={resource.canonical}
-                shortcut={{ modifiers: ["cmd"], key: "o" }}
-              />
-            )}
+            {resource.canonical && <Action.OpenInBrowser title="Open in Browser" url={resource.canonical} />}
             {detail?.url && detail.url !== resource.canonical && (
               <Action.OpenInBrowser
                 title="Open Resource URL"
